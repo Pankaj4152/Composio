@@ -10,6 +10,7 @@ from composio_research.research import (
     ResearchExtractionError,
     ResearchExtractor,
     build_research_context,
+    openai_strict_json_schema,
     validate_record_consistency,
 )
 from composio_research.retrieval import FetchedSource, RetrievalArtifact, retrieval_artifact_from_dict
@@ -118,6 +119,16 @@ def test_context_contains_clean_source_metadata_not_raw_html() -> None:
     assert "CLEAN_TEXT:" in context
     assert "Slack apps use OAuth 2.0." in context
     assert "<html" not in context
+
+
+def test_openai_schema_requires_nullable_pydantic_fields() -> None:
+    schema = openai_strict_json_schema(AppRecord)
+    evidence_definition = schema["$defs"]["Evidence"]
+    record_properties = schema["properties"]
+
+    assert "excerpt" in evidence_definition["required"]
+    assert "access_notes" in schema["required"]
+    assert "default" not in record_properties["manual_override"]
 
 
 def test_extractor_uses_strict_json_schema_and_overwrites_model_identity() -> None:

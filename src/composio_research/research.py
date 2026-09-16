@@ -98,6 +98,31 @@ def build_research_context(entry: AppEntry, artifact: RetrievalArtifact, *, max_
     )
 
 
+def openai_strict_json_schema(model: type[AppRecord]) -> dict[str, Any]:
+    """Adapt Pydantic JSON Schema to OpenAI strict Structured Outputs rules.
+
+    Pydantic treats nullable/defaulted fields as optional. OpenAI requires every
+    object property in a strict schema to be required; nullability remains in
+    the property's type definition, so optional values can still be ``null``.
+    """
+    schema = json.loads(json.dumps(model.model_json_schema()))
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                node["required"] = list(properties)
+            node.pop("default", None)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(schema)
+    return schema
+
+
 def validate_record_consistency(record: AppRecord, artifact: RetrievalArtifact) -> list[ConsistencyIssue]:
     """Apply deterministic rules that should not be delegated to the model."""
     issues: list[ConsistencyIssue] = []
@@ -151,7 +176,7 @@ class ResearchExtractor:
                     "type": "json_schema",
                     "name": "app_research_record",
                     "strict": True,
-                    "schema": AppRecord.model_json_schema(),
+                    "schema": openai_strict_json_schema(AppRecord),
                 }
             },
         )
