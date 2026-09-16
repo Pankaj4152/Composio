@@ -130,4 +130,4 @@ In GitHub, open **Settings → Pages**, choose **Deploy from a branch**, then se
 
 ## Quality gates
 
-The repository currently has 72 automated tests covering source-data validation, serialization, retrieval ranking, strict Responses schemas, extraction constraints, verification, retry policy, Composio matching, batch completeness, audit metrics, analysis, insights, and report rendering.
+The repository currently has 77 automated tests covering source-data validation, serialization, retrieval ranking, strict Responses schemas, extraction constraints, verification, retry policy, Composio matching, batch completeness, audit metrics, analysis, insights, and report rendering.

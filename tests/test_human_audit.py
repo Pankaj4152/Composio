@@ -33,6 +33,15 @@ def test_audit_templates_are_blank_and_include_frozen_values() -> None:
     assert {template.field for template in templates} == {"auth_methods", "credential_access", "api_surface", "mcp_status", "buildability_verdict"}
 
 
+def test_scalar_audit_values_do_not_include_json_quotes() -> None:
+    template = next(
+        item for item in build_audit_templates(records(), representative_size=1, challenge_size=0)
+        if item.field == "credential_access"
+    )
+
+    assert template.frozen_agent_value == "free_self_serve"
+
+
 def test_audit_templates_include_matched_pass_two_records() -> None:
     first = records()[0]
     second = first.model_copy(update={"pass_number": 2})

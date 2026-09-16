@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import Enum
 import hashlib
 import json
 from pathlib import Path
@@ -71,7 +72,18 @@ def challenge_sample(records: Iterable[AppRecord], *, size: int = 5, exclude_ids
 
 
 def _field_value(record: AppRecord, field: str) -> str:
-    return json.dumps(getattr(record, field), default=lambda value: value.value, ensure_ascii=False)
+    """Use the same readable enum representation shown to a human reviewer.
+
+    Lists remain JSON so an ordered multi-auth prediction is unambiguous. A
+    scalar enum must not be JSON encoded: that adds quotation marks and makes
+    an otherwise identical human-audit value fail validation.
+    """
+    value = getattr(record, field)
+    if isinstance(value, list):
+        return json.dumps(value, default=lambda item: item.value, ensure_ascii=False)
+    if isinstance(value, Enum):
+        return value.value
+    return str(value)
 
 
 def _official_evidence_urls(record: AppRecord, field: str) -> tuple[str, ...]:

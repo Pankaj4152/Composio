@@ -36,3 +36,15 @@ def test_completed_audit_must_match_frozen_prediction() -> None:
     row = audit(21, "auth_methods", 1, True)
     with pytest.raises(ValueError, match="does not match"):
         validate_completed_audits((row,), (make_record(),))
+
+
+def test_completed_pass_one_audit_validates_alongside_a_later_pass_two() -> None:
+    first = make_record()
+    second = first.model_copy(update={"pass_number": 2})
+    row = HumanAuditRecord(
+        app_id=first.id, app=first.app, pass_number=1, field="auth_methods",
+        frozen_agent_value='["oauth2"]', human_ground_truth='["oauth2"]', correct=True,
+        official_evidence_url="https://docs.example", sample_type=AuditSampleType.REPRESENTATIVE,
+    )
+
+    validate_completed_audits((row,), (first, second))

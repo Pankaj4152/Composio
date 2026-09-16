@@ -4,7 +4,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from composio_research.config import REPORT_DIR
+from composio_research.config import AUDIT_DIR, REPORT_DIR
 from composio_research.analysis import load_final_records
 from composio_research.schema import AppRecord
 from composio_research.serialization import read_json
@@ -40,7 +40,7 @@ def _record_table(records: tuple[AppRecord, ...]) -> str:
     return "".join(rows) or '<tr><td colspan="9">No frozen records available.</td></tr>'
 
 
-def _scorecard_html(audit_dir: Path = Path("data/audit")) -> str:
+def _scorecard_html(audit_dir: Path = AUDIT_DIR) -> str:
     path = audit_dir / "scorecard.json"
     if not path.exists():
         return '<p class="muted">No completed human audit has been supplied yet. Field-level and paired pass-one/pass-two accuracy will appear here after independent review.</p>'
