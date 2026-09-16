@@ -20,6 +20,7 @@ final/
 
 # Generated report
 report/index.html
+report/analysis.json
 
 # Keep directory markers
 !**/.gitkeep
