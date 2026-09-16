@@ -16,6 +16,8 @@ from composio_research.config import LOG_DIR
 from composio_research.serialization import write_json
 from composio_research.source_planner import (
     CandidateSourceType,
+    HintSeed,
+    PlannedQuery,
     ResearchPlan,
     RetrievalStatus,
     SourceCandidate,
@@ -303,3 +305,59 @@ def save_retrieval_artifact(artifact: RetrievalArtifact, log_dir: Path = LOG_DIR
     path = retrieval_artifact_path(artifact.app_id, log_dir)
     write_json(path, artifact)
     return path
+
+
+def retrieval_artifact_from_dict(data: dict[str, object]) -> RetrievalArtifact:
+    """Rehydrate a saved JSON retrieval artifact into typed nested objects."""
+    raw_plan = data["plan"]
+    if not isinstance(raw_plan, dict):
+        raise ValueError("Retrieval artifact plan must be an object.")
+    raw_hint = raw_plan["hint"]
+    if not isinstance(raw_hint, dict):
+        raise ValueError("Retrieval artifact hint must be an object.")
+    raw_candidates = raw_plan["direct_candidates"]
+    raw_queries = raw_plan["queries"]
+    raw_sources = data["fetched_sources"]
+    if not all(isinstance(value, list) for value in (raw_candidates, raw_queries, raw_sources)):
+        raise ValueError("Retrieval artifact candidate, query, and source fields must be arrays.")
+
+    plan = ResearchPlan(
+        app_id=int(raw_plan["app_id"]),
+        app_name=str(raw_plan["app_name"]),
+        category=str(raw_plan["category"]),
+        hint=HintSeed(**raw_hint),
+        direct_candidates=tuple(
+            SourceCandidate(
+                **{
+                    **candidate,
+                    "source_type": CandidateSourceType(candidate["source_type"]),
+                    "status": RetrievalStatus(candidate["status"]),
+                    "relevance_score": candidate.get("relevance_score", 1.0),
+                    "requires_human_review": candidate.get("requires_human_review", False),
+                }
+            )
+            for candidate in raw_candidates
+            if isinstance(candidate, dict)
+        ),
+        queries=tuple(PlannedQuery(**query) for query in raw_queries if isinstance(query, dict)),
+    )
+    sources = tuple(
+        FetchedSource(
+            **{
+                **source,
+                "source_type": CandidateSourceType(source["source_type"]),
+                "status": RetrievalStatus(source["status"]),
+                "relevance_score": source.get("relevance_score", 1.0),
+                "requires_human_review": source.get("requires_human_review", False),
+            }
+        )
+        for source in raw_sources
+        if isinstance(source, dict)
+    )
+    return RetrievalArtifact(
+        app_id=int(data["app_id"]),
+        app_name=str(data["app_name"]),
+        plan=plan,
+        fetched_sources=sources,
+        created_at=str(data["created_at"]),
+    )

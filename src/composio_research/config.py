@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = Field(default=30, ge=1, le=120)
 
     openai_api_key: str | None = None
+    openai_model: str = "gpt-5-mini"
     search_provider: str | None = None
     search_api_key: str | None = None
     composio_api_key: str | None = None
