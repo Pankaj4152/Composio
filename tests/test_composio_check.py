@@ -45,3 +45,14 @@ def test_catalog_checker_is_graceful_without_key() -> None:
 
     assert result.has_toolkit is None
     assert "COMPOSIO_API_KEY" in result.notes
+
+
+def test_catalog_checker_redacts_key_like_provider_error() -> None:
+    class BrokenToolkits:
+        def list(self, **kwargs):
+            raise RuntimeError("Invalid API key: ck_secretValue")
+    class BrokenClient:
+        toolkits = BrokenToolkits()
+    result = ComposioCatalogChecker(Settings(_env_file=None), client=BrokenClient()).check("Slack")
+    assert "ck_secretValue" not in result.notes
+    assert "[redacted]" in result.notes

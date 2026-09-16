@@ -73,7 +73,8 @@ class ComposioCatalogChecker:
             try:
                 response = self.client.toolkits.list(limit=100, cursor=cursor)
             except Exception as error:
-                return ComposioCheckResult(app_name, None, None, f"Composio catalog query failed: {error}")
+                message = re.sub(r"Invalid API key:\s*[^'\s,}]+", "Invalid API key: [redacted]", str(error))
+                return ComposioCheckResult(app_name, None, None, f"Composio catalog query failed: {message}")
             items.extend(_items(response))
             cursor = _next_cursor(response)
             if cursor is None:
