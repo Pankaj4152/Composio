@@ -40,6 +40,24 @@ def _record_table(records: tuple[AppRecord, ...]) -> str:
     return "".join(rows) or '<tr><td colspan="9">No frozen records available.</td></tr>'
 
 
+def _scorecard_html(audit_dir: Path = Path("data/audit")) -> str:
+    path = audit_dir / "scorecard.json"
+    if not path.exists():
+        return '<p class="muted">No completed human audit has been supplied yet. Field-level and paired pass-one/pass-two accuracy will appear here after independent review.</p>'
+    try:
+        data = read_json(path)
+        metrics = data.get("metrics", [])
+        if not metrics:
+            return '<p class="muted">Scorecard data is empty.</p>'
+        rows = "".join(
+            f"<tr><td>{_label(m.get('sample_type', ''))}</td><td>{_label(m.get('field', ''))}</td><td>Pass {m.get('pass_number', 1)}</td><td>{m.get('correct', 0)} / {m.get('checked', 0)}</td><td><strong>{m.get('accuracy', 0)*100:.1f}%</strong></td></tr>"
+            for m in metrics
+        )
+        return f'<div class="table-wrap"><table><thead><tr><th>Sample Type</th><th>Field</th><th>Pass</th><th>Correct / Checked</th><th>Accuracy</th></tr></thead><tbody>{rows}</tbody></table></div>'
+    except Exception as err:
+        return f'<p class="muted">Could not load scorecard: {escape(str(err))}</p>'
+
+
 def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records: tuple[AppRecord, ...] = ()) -> str:
     """Render only supplied computed values; no dataset-size or outcome is hard-coded."""
     count = int(analysis.get("record_count", 0))
@@ -73,6 +91,7 @@ def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records
         "This is a complete 100-app analysis." if count == 100
         else f"This is a partial analysis of {count} frozen records. It is not presented as a 100-app result."
     )
+    scorecard_section = _scorecard_html()
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Integration Intelligence Case Study</title><style>
@@ -81,11 +100,11 @@ def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records
 <section><h2>Executive summary</h2><div class="grid"><div class="metric"><strong>{count}</strong><span>Frozen records analyzed</span></div>{_distribution_cards(buildability)}</div></section>
 <section><h2>What the data says</h2><div class="findings">{findings_html}</div></section>
 <section><h2>Opportunity sets</h2><p class="rule">Rules are deterministic: easy build requires a useful, moderate/broad API, self-serve access, and no hard blocker. Outreach requires a useful API plus a commercial or approval gate.</p><div class="grid">{opportunity_html}</div></section>
-{_matrix(analysis.get('category_verdict_matrix', {}) if isinstance(analysis.get('category_verdict_matrix', {}), dict) else {}, 'Category × buildability')}
-{_matrix(analysis.get('category_access_matrix', {}) if isinstance(analysis.get('category_access_matrix', {}), dict) else {}, 'Category × access')}
+<section><h2>Category × buildability</h2>{_matrix(analysis.get('category_verdict_matrix', {}) if isinstance(analysis.get('category_verdict_matrix', {}), dict) else {}, 'Category × buildability')}</section>
+<section><h2>Category × access</h2>{_matrix(analysis.get('category_access_matrix', {}) if isinstance(analysis.get('category_access_matrix', {}), dict) else {}, 'Category × access')}</section>
 <section><h2>Evidence-backed app records</h2><input id="app-filter" type="search" placeholder="Search app, category, access, verdict…"><div class="table-wrap"><table id="app-table"><thead><tr><th>App</th><th>Category</th><th>Auth</th><th>Access</th><th>API</th><th>MCP</th><th>Verdict</th><th>Confidence</th><th>Evidence</th></tr></thead><tbody>{_record_table(records)}</tbody></table></div></section>
 <section><h2>How the agent works</h2><p class="rule">Research → Evidence → Verify → Targeted retry → Human audit → Analysis. Automated steps preserve raw artifacts; human review is independent and does not overwrite frozen predictions.</p></section>
-<section><h2>Verification proof</h2><p class="muted">No completed human audit has been supplied yet. Field-level and paired pass-one/pass-two accuracy will appear here after independent review.</p></section>
+<section><h2>Verification proof</h2>{scorecard_section}</section>
 <section><h2>Reproducibility</h2><p>Generate frozen data, then run <code>uv run python scripts/analyze.py</code>, <code>uv run python scripts/generate_insights.py</code>, and <code>uv run python scripts/build_report.py</code>.</p></section>
 </main><script>const f=document.getElementById('app-filter');if(f)f.addEventListener('input',()=>{{const q=f.value.toLowerCase();document.querySelectorAll('#app-table tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></body></html>"""
 
