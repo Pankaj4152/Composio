@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+
+# Secrets and local configuration
+.env
+
+# Generated research artifacts
+data/pass1/*
+data/pass2/*
+data/logs/*
+data/audit/*
+data/final.json
+data/analysis.json
+final/
+
+# Generated report
+report/index.html
+
+# Keep directory markers
+!**/.gitkeep
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
