@@ -10,6 +10,7 @@ from composio_research.research import (
     ResearchExtractionError,
     ResearchExtractor,
     build_research_context,
+    critical_evidence_issues,
     openai_strict_json_schema,
     validate_record_consistency,
 )
@@ -84,7 +85,12 @@ def make_record(**overrides: object) -> AppRecord:
                 source_type=EvidenceSourceType.OFFICIAL_DOCS,
                 support=EvidenceSupport.DIRECT,
                 confidence=0.98,
-            )
+            ),
+            Evidence(field="credential_access", claim="Credentials are self-serve.", url="https://docs.slack.dev/authentication/", source_type=EvidenceSourceType.OFFICIAL_DOCS, support=EvidenceSupport.DIRECT, confidence=0.9),
+            Evidence(field="api_surface", claim="Slack has a REST API.", url="https://docs.slack.dev/authentication/", source_type=EvidenceSourceType.OFFICIAL_DOCS, support=EvidenceSupport.INDIRECT, confidence=0.8),
+            Evidence(field="api_breadth", claim="Slack covers core actions.", url="https://docs.slack.dev/authentication/", source_type=EvidenceSourceType.OFFICIAL_DOCS, support=EvidenceSupport.INDIRECT, confidence=0.8),
+            Evidence(field="mcp_status", claim="No MCP is established by this source set.", url="https://docs.slack.dev/authentication/", source_type=EvidenceSourceType.OFFICIAL_DOCS, support=EvidenceSupport.INDIRECT, confidence=0.3),
+            Evidence(field="buildability_verdict", claim="Slack is buildable with documented OAuth and API evidence.", url="https://docs.slack.dev/authentication/", source_type=EvidenceSourceType.OFFICIAL_DOCS, support=EvidenceSupport.INDIRECT, confidence=0.8),
         ],
         "overall_confidence": 0.98,
         "pass_number": 1,
@@ -110,6 +116,13 @@ class FakeClient:
             cls.last_kwargs = kwargs
             assert cls.response is not None
             return cls.response
+
+
+class FailingClient:
+    class responses:
+        @staticmethod
+        def create(**kwargs: object) -> FakeResponse:
+            raise TimeoutError("simulated request timeout")
 
 
 def test_context_contains_clean_source_metadata_not_raw_html() -> None:
@@ -173,12 +186,33 @@ def test_consistency_checks_reject_evidence_url_absent_from_context() -> None:
     assert any(issue.field == "evidence.url" for issue in issues)
 
 
+def test_critical_evidence_check_flags_specific_unsupported_claims() -> None:
+    record = make_record(evidence=[])
+    issues = critical_evidence_issues(record)
+
+    assert {issue.field for issue in issues} == {
+        "auth_methods",
+        "credential_access",
+        "api_surface",
+        "api_breadth",
+        "mcp_status",
+        "buildability_verdict",
+    }
+
+
 def test_extractor_rejects_invalid_model_json() -> None:
     FakeClient.responses.response = FakeResponse({})
     FakeClient.responses.response.output_text = "not-json"
     extractor = ResearchExtractor(Settings(openai_model="test-model", _env_file=None), client=FakeClient())
 
     with pytest.raises(ResearchExtractionError, match="not valid JSON"):
+        extractor.extract(slack_entry(), make_retrieval_artifact())
+
+
+def test_extractor_converts_provider_errors_to_research_errors() -> None:
+    extractor = ResearchExtractor(Settings(openai_model="test-model", _env_file=None), client=FailingClient())
+
+    with pytest.raises(ResearchExtractionError, match="Responses API request failed"):
         extractor.extract(slack_entry(), make_retrieval_artifact())
 
 

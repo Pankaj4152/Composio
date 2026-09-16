@@ -11,6 +11,7 @@ def test_settings_use_safe_defaults() -> None:
 
     assert settings.max_concurrency == 5
     assert settings.request_timeout_seconds == 30
+    assert settings.openai_timeout_seconds == 75
     assert settings.openai_api_key is None
 
 

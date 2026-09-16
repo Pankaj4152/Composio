@@ -31,6 +31,7 @@ class Settings(BaseSettings):
 
     max_concurrency: int = Field(default=5, ge=1, le=20)
     request_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    openai_timeout_seconds: int = Field(default=75, ge=15, le=300)
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"

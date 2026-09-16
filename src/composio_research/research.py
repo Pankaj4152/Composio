@@ -15,6 +15,7 @@ from composio_research.schema import (
     BuildabilityVerdict,
     CredentialAccess,
     MCPStatus,
+    AuthMethod,
 )
 from composio_research.serialization import write_json
 
@@ -148,7 +149,34 @@ def validate_record_consistency(record: AppRecord, artifact: RetrievalArtifact) 
                     f"Evidence URL was not included in the fetched source context: {evidence.url}",
                 )
             )
+    issues.extend(critical_evidence_issues(record))
     return issues
+
+
+def critical_evidence_issues(record: AppRecord) -> list[ConsistencyIssue]:
+    """Require claim-level support for specific facts used in operations decisions."""
+    evidence_fields = {evidence.field for evidence in record.evidence}
+    required_fields: list[str] = []
+    if any(method != AuthMethod.UNKNOWN for method in record.auth_methods):
+        required_fields.append("auth_methods")
+    if record.credential_access != CredentialAccess.UNCLEAR:
+        required_fields.append("credential_access")
+    if record.api_surface != ApiSurface.UNKNOWN:
+        required_fields.append("api_surface")
+    if record.api_breadth.value != "unknown":
+        required_fields.append("api_breadth")
+    if record.mcp_status != MCPStatus.UNKNOWN:
+        required_fields.append("mcp_status")
+    # Buildability has no UNKNOWN state; every verdict is an operational claim.
+    required_fields.append("buildability_verdict")
+    if record.blocker_type != BlockerType.NONE:
+        required_fields.append("blocker_type")
+
+    return [
+        ConsistencyIssue(field, f"Specific claim '{field}' has no claim-level evidence.")
+        for field in required_fields
+        if field not in evidence_fields
+    ]
 
 
 class ResearchExtractor:
@@ -161,25 +189,28 @@ class ResearchExtractor:
         if client is None:
             from openai import OpenAI
 
-            client = OpenAI(api_key=settings.openai_api_key)
+            client = OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds, max_retries=0)
         self.client = client
 
     def extract(self, entry: AppEntry, retrieval_artifact: RetrievalArtifact, *, pass_number: int = 1) -> tuple[AppRecord, ResearchArtifact]:
         context = build_research_context(entry, retrieval_artifact)
-        response = self.client.responses.create(
-            model=self.model,
-            store=False,
-            instructions=SYSTEM_INSTRUCTIONS,
-            input=context,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "app_research_record",
-                    "strict": True,
-                    "schema": openai_strict_json_schema(AppRecord),
-                }
-            },
-        )
+        try:
+            response = self.client.responses.create(
+                model=self.model,
+                store=False,
+                instructions=SYSTEM_INSTRUCTIONS,
+                input=context,
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "app_research_record",
+                        "strict": True,
+                        "schema": openai_strict_json_schema(AppRecord),
+                    }
+                },
+            )
+        except Exception as error:
+            raise ResearchExtractionError(f"Responses API request failed: {error}") from error
         raw_output = getattr(response, "output_text", "")
         if not raw_output:
             raise ResearchExtractionError("Responses API returned no output_text.")
