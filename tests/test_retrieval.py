@@ -140,6 +140,27 @@ def test_failed_source_is_recorded_without_crashing_run() -> None:
     assert source.error
 
 
+def test_official_search_snippet_is_retained_only_after_a_blocked_official_fetch() -> None:
+    transport = httpx.MockTransport(lambda request: httpx.Response(403, request=request))
+    client = httpx.Client(transport=transport, follow_redirects=True)
+    plan = plan_research(app_by_name("Slack"))
+
+    class BlockedOfficialSearch:
+        def search(self, query: str, limit: int = 5):
+            return [SearchResult(
+                "Slack OAuth documentation",
+                "https://slack.com/help/oauth",
+                "Slack apps use OAuth 2.0 to obtain access tokens for workspace APIs.",
+            )]
+
+    artifact = retrieve_plan(plan, Fetcher(client=client, max_attempts=1), BlockedOfficialSearch(), max_candidates=2)
+    fallback = next(source for source in artifact.fetched_sources if source.requested_url.endswith("/help/oauth"))
+
+    assert fallback.status == RetrievalStatus.FETCHED
+    assert fallback.requires_human_review is True
+    assert "OFFICIAL SEARCH SNIPPET" in (fallback.extracted_text or "")
+
+
 def test_retrieval_artifact_is_saved_with_plan_and_clean_source_text(tmp_path: Path) -> None:
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text=HTML_PAGE, request=request))
     client = httpx.Client(transport=transport, follow_redirects=True)

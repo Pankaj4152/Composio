@@ -274,6 +274,7 @@ def retrieve_plan(
         if canonicalize_url(candidate.url) in seen_canonical_urls:
             continue
         source = fetcher.fetch(candidate)
+        source = _official_snippet_fallback(candidate, source)
         canonical_url = canonicalize_url(source.final_url or source.requested_url)
         if canonical_url in seen_canonical_urls:
             continue
@@ -285,6 +286,40 @@ def retrieve_plan(
         plan=plan,
         fetched_sources=tuple(fetched_sources),
         created_at=utc_now(),
+    )
+
+
+def _official_snippet_fallback(candidate: SourceCandidate, source: FetchedSource) -> FetchedSource:
+    """Retain an official search snippet only when the official page blocks fetching.
+
+    This is deliberately narrow: it is not a substitute for fetching pages,
+    never applies to secondary domains, and remains visibly flagged for human
+    review. It lets a traceable, claim-specific official search result support
+    a bounded retry when a documentation host returns 403 to the fetcher.
+    """
+    snippet = candidate.snippet.strip()
+    if (
+        source.status != RetrievalStatus.FAILED
+        or source.status_code not in {401, 403}
+        or not candidate.is_official_domain
+        or len(snippet) < 40
+    ):
+        return source
+    return FetchedSource(
+        requested_url=source.requested_url,
+        final_url=candidate.url,
+        source_type=candidate.source_type,
+        is_official_domain=True,
+        priority=candidate.priority,
+        relevance_score=candidate.relevance_score,
+        requires_human_review=True,
+        status=RetrievalStatus.FETCHED,
+        status_code=source.status_code,
+        title=candidate.title or source.title,
+        extracted_text=f"OFFICIAL SEARCH SNIPPET (page fetch blocked): {snippet}",
+        fetched_at=source.fetched_at,
+        attempts=source.attempts,
+        error=source.error,
     )
 
 

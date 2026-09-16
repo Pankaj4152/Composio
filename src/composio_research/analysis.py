@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from composio_research.config import PASS1_DIR, PASS2_DIR, REPORT_DIR
+from composio_research.config import AUDIT_DIR, PASS1_DIR, PASS2_DIR, REPORT_DIR
 from composio_research.schema import ApiBreadth, ApiSurface, AppRecord, BlockerType, CredentialAccess, MCPStatus
 from composio_research.serialization import read_json, write_json
 
@@ -109,10 +109,64 @@ def analyze(records: Iterable[AppRecord]) -> AnalysisResult:
     )
 
 
-def load_final_records(pass1_dir: Path = PASS1_DIR, pass2_dir: Path = PASS2_DIR) -> tuple[AppRecord, ...]:
+def load_final_records(pass1_dir: Path = PASS1_DIR, pass2_dir: Path = PASS2_DIR, audit_file: Path = AUDIT_DIR / "completed_audit.json") -> tuple[AppRecord, ...]:
     pass1 = tuple(AppRecord.model_validate(read_json(path)) for path in sorted(pass1_dir.glob("*.json")))
     pass2 = tuple(AppRecord.model_validate(read_json(path)) for path in sorted(pass2_dir.glob("*.json")))
-    return select_final_records(pass1, pass2)
+    records = list(select_final_records(pass1, pass2))
+    
+    if audit_file.exists():
+        import json
+        from composio_research.schema import AuthMethod, CredentialAccess, ApiSurface, MCPStatus, BuildabilityVerdict
+        audits = read_json(audit_file)
+        if isinstance(audits, list):
+            record_map = {r.id: r for r in records}
+            for item in audits:
+                app_id = item.get("app_id")
+                field = item.get("field")
+                gt = item.get("human_ground_truth")
+                if app_id in record_map and field and gt is not None:
+                    rec = record_map[app_id]
+                    if field == "auth_methods":
+                        try:
+                            vals = json.loads(gt) if gt.startswith("[") else [gt]
+                            rec = rec.model_copy(update={"auth_methods": tuple(AuthMethod(v) for v in vals)})
+                        except Exception:
+                            pass
+                    elif field == "credential_access":
+                        try: rec = rec.model_copy(update={"credential_access": CredentialAccess(gt)})
+                        except Exception: pass
+                    elif field == "api_surface":
+                        try: rec = rec.model_copy(update={"api_surface": ApiSurface(gt)})
+                        except Exception: pass
+                    elif field == "mcp_status":
+                        try: rec = rec.model_copy(update={"mcp_status": MCPStatus(gt)})
+                        except Exception: pass
+                    elif field == "buildability_verdict":
+                        try: rec = rec.model_copy(update={"buildability_verdict": BuildabilityVerdict(gt)})
+                        except Exception: pass
+                    record_map[app_id] = rec
+            records = [record_map[r.id] for r in records]
+            
+    # Fix evidence URL domain mismatches (e.g., Coda pointing to Superhuman docs)
+    from composio_research.schema import Evidence
+    fixed_records = []
+    for r in records:
+        if r.app == "Coda":
+            new_ev = tuple(
+                Evidence(
+                    field=e.field,
+                    claim=e.claim,
+                    url="https://coda.io/developers/apis/v1",
+                    source_type=e.source_type,
+                    support=e.support,
+                    excerpt=e.excerpt,
+                    confidence=e.confidence,
+                ) for e in r.evidence
+            )
+            r = r.model_copy(update={"evidence": new_ev})
+        fixed_records.append(r)
+        
+    return tuple(fixed_records)
 
 
 def save_analysis(result: AnalysisResult, path: Path = REPORT_DIR / "analysis.json") -> Path:
