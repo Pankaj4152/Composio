@@ -13,8 +13,16 @@ def main() -> None:
     parser.add_argument("--app-id", type=int, action="append", dest="app_ids", help="Repeat to run specific IDs only.")
     parser.add_argument("--max-concurrency", type=int, help="Override MAX_CONCURRENCY for this invocation.")
     parser.add_argument("--check-only", action="store_true", help="Report completeness without external requests.")
+    parser.add_argument("--errors-only", action="store_true", help="Run only app IDs with unresolved terminal errors.")
     args = parser.parse_args()
-    selected = tuple(app for app in APPS if not args.app_ids or app.id in set(args.app_ids))
+    if args.errors_only and args.app_ids:
+        raise SystemExit("Use either --errors-only or --app-id, not both.")
+    current = validate_completeness(APPS)
+    if args.errors_only:
+        selected = tuple(app for app in APPS if app.id in set(current.unresolved_error_ids))
+    else:
+        selected_ids = set(args.app_ids or [])
+        selected = tuple(app for app in APPS if not selected_ids or app.id in selected_ids)
     if args.app_ids and len(selected) != len(set(args.app_ids)):
         raise SystemExit("One or more --app-id values are invalid.")
     if args.check_only:
