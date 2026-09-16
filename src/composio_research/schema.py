@@ -200,3 +200,14 @@ class HumanAuditRecord(StrictModel):
     official_evidence_url: str = Field(min_length=1)
     note: str = ""
     sample_type: AuditSampleType
+
+
+class TerminalErrorRecord(StrictModel):
+    """A durable per-app failure record used to make batch completeness explicit."""
+
+    app_id: int = Field(ge=1)
+    app_name: str = Field(min_length=1)
+    stage: str = Field(min_length=1)
+    error_type: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    created_at: str = Field(min_length=1)
