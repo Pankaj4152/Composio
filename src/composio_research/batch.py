@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from composio_research.apps import AppEntry
 from composio_research.config import LOG_DIR, PASS1_DIR, PASS2_DIR, Settings
@@ -130,7 +130,13 @@ def run_one(
         return AppRunResult(entry.id, entry.name, "error", f"{stage}: {type(error).__name__}: {error}")
 
 
-def run_batch(entries: Iterable[AppEntry], settings: Settings, *, max_concurrency: int | None = None) -> tuple[AppRunResult, ...]:
+def run_batch(
+    entries: Iterable[AppEntry],
+    settings: Settings,
+    *,
+    max_concurrency: int | None = None,
+    on_result: Callable[[int, int, AppRunResult], None] | None = None,
+) -> tuple[AppRunResult, ...]:
     """Run entries with bounded concurrency; one app error never stops another app."""
     selected = tuple(entries)
     workers = max_concurrency or settings.max_concurrency
@@ -140,7 +146,10 @@ def run_batch(entries: Iterable[AppEntry], settings: Settings, *, max_concurrenc
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="research") as executor:
         futures = {executor.submit(run_one, entry, settings): entry for entry in selected}
         for future in as_completed(futures):
-            results.append(future.result())
+            result = future.result()
+            results.append(result)
+            if on_result is not None:
+                on_result(len(results), len(selected), result)
     return tuple(sorted(results, key=lambda result: result.app_id))
 
 

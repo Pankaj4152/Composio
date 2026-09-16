@@ -21,11 +21,21 @@ def main() -> None:
         report = validate_completeness(APPS)
         print(report)
         return
-    results = run_batch(selected, load_settings(), max_concurrency=args.max_concurrency)
+    settings = load_settings()
+    workers = args.max_concurrency or settings.max_concurrency
+    print(f"Starting {len(selected)} app(s) with max concurrency={workers}. Existing frozen records will be resumed.", flush=True)
+
+    def progress(completed: int, total: int, result) -> None:
+        print(f"[{completed}/{total}] {result.app_name} ({result.app_id:03d}) — {result.status}: {result.detail}", flush=True)
+
+    results = run_batch(selected, settings, max_concurrency=args.max_concurrency, on_result=progress)
     write_json(LOG_DIR / "runs" / "latest.json", results)
     report = validate_completeness(APPS)
     write_json(LOG_DIR / "runs" / "completeness.json", report)
-    print({"completed": len(results), "errors": sum(result.status == "error" for result in results), "missing_ids": report.missing_ids})
+    errors = sum(result.status == "error" for result in results)
+    print(f"Finished. processed={len(results)}, errors={errors}, missing_ids={len(report.missing_ids)}", flush=True)
+    if report.missing_ids:
+        print(f"Missing IDs: {report.missing_ids}", flush=True)
 
 
 if __name__ == "__main__":

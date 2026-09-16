@@ -1,7 +1,8 @@
 """Tests for terminal-error accounting and completeness validation."""
 
 from composio_research.apps import APPS
-from composio_research.batch import validate_completeness
+from composio_research.batch import AppRunResult, run_batch, validate_completeness
+from composio_research.config import Settings
 from composio_research.schema import (
     ApiBreadth,
     ApiSurface,
@@ -44,3 +45,14 @@ def test_completeness_reports_missing_and_terminal_error_ids(tmp_path) -> None:
     assert report.pass1_ids == (21,)
     assert report.terminal_error_ids == (41,)
     assert report.missing_ids == (61,)
+
+
+def test_batch_reports_each_completed_result_to_progress_callback(monkeypatch) -> None:
+    import composio_research.batch as batch
+
+    monkeypatch.setattr(batch, "run_one", lambda entry, settings: AppRunResult(entry.id, entry.name, "verified", "done"))
+    progress = []
+    results = run_batch(APPS[:2], Settings(_env_file=None), max_concurrency=1, on_result=lambda done, total, result: progress.append((done, total, result.id if hasattr(result, 'id') else result.app_id)))
+
+    assert len(results) == 2
+    assert progress == [(1, 2, 1), (2, 2, 2)]
