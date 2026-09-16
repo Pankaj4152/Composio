@@ -7,7 +7,7 @@ from composio_research.apps import AppEntry
 from composio_research.config import LOG_DIR, PASS2_DIR
 from composio_research.evidence_verifier import VerificationArtifact
 from composio_research.research import ResearchArtifact, ResearchExtractor, save_research_artifact
-from composio_research.retrieval import Fetcher, RetrievalArtifact, SearchProvider, retrieve_plan, save_retrieval_artifact
+from composio_research.retrieval import Fetcher, RetrievalArtifact, SearchProvider, retrieve_plan
 from composio_research.schema import AppRecord, VerificationStatus
 from composio_research.serialization import write_json
 from composio_research.source_planner import PlannedQuery, ResearchPlan
@@ -107,7 +107,9 @@ def execute_retry(
         search_provider,
         max_candidates=8,
     )
-    retrieval_path = save_retrieval_artifact(retrieval, log_dir)
+    # Do not overwrite pass-one evidence: pass two needs its own source set.
+    retrieval_path = log_dir / "retrieval" / f"{entry.id:03d}_pass2.json"
+    write_json(retrieval_path, retrieval)
     record2, research_artifact = extractor.extract(
         entry,
         retrieval,
