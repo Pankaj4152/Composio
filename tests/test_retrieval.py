@@ -47,15 +47,42 @@ class FakeSearchProvider:
 
 def test_classify_search_result_prioritizes_official_docs() -> None:
     official = classify_search_result(
-        SearchResult("Slack API", "https://api.slack.com/methods"), "slack.com"
+        SearchResult("Slack API", "https://api.slack.com/methods"), "slack.com", "Slack"
     )
     secondary = classify_search_result(
-        SearchResult("Blog", "https://example.test/slack"), "slack.com"
+        SearchResult("Blog", "https://example.test/slack"), "slack.com", "Slack"
     )
 
     assert official.source_type == CandidateSourceType.OFFICIAL_DOCS
     assert official.priority > secondary.priority
     assert secondary.source_type == CandidateSourceType.SECONDARY
+
+
+def test_official_result_for_the_wrong_google_product_is_downranked_and_flagged() -> None:
+    analytics_mcp = classify_search_result(
+        SearchResult(
+            "Google Analytics MCP server",
+            "https://developers.google.com/analytics/devguides/MCP",
+            "A search snippet that mentions Google Ads despite the page being about Analytics.",
+        ),
+        "developers.google.com",
+        "Google Ads",
+    )
+    ads_mcp = classify_search_result(
+        SearchResult(
+            "Google Ads API MCP server",
+            "https://developers.google.com/google-ads/api/docs/developer-toolkit/mcp-server",
+            "Google Ads MCP server documentation.",
+        ),
+        "developers.google.com",
+        "Google Ads",
+    )
+
+    assert analytics_mcp.is_official_domain is True
+    assert analytics_mcp.relevance_score == 0.6
+    assert analytics_mcp.requires_human_review is True
+    assert ads_mcp.relevance_score == 1.0
+    assert ads_mcp.priority > analytics_mcp.priority
 
 
 def test_discovery_keeps_direct_hint_and_deduplicates_search_results() -> None:
@@ -125,6 +152,8 @@ def test_retrieval_artifact_is_saved_with_plan_and_clean_source_text(tmp_path: P
     assert path == tmp_path / "retrieval" / "021.json"
     assert saved["app_name"] == "Slack"
     assert saved["fetched_sources"][0]["status"] == "fetched"
+    assert saved["fetched_sources"][0]["relevance_score"] == 1.0
+    assert saved["fetched_sources"][0]["requires_human_review"] is False
     assert "OAuth 2.0" in saved["fetched_sources"][0]["extracted_text"]
 
 
@@ -148,3 +177,34 @@ def test_retrieval_limits_the_number_of_fetched_candidates() -> None:
 
     assert len(artifact.fetched_sources) == 2
     assert requests == 2
+
+
+def test_retrieval_deduplicates_a_redirected_hint_and_matching_search_result() -> None:
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if str(request.url) == "https://shopify.dev":
+            return httpx.Response(
+                302,
+                headers={"Location": "https://shopify.dev/docs"},
+                request=request,
+            )
+        return httpx.Response(200, text=HTML_PAGE, request=request)
+
+    class ShopifyProvider:
+        def search(self, query: str, limit: int = 5):
+            return [SearchResult("Shopify Dev Docs", "https://shopify.dev/docs")]
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    shopify = app_by_name("Shopify")
+    artifact = retrieve_plan(
+        plan_research(shopify),
+        Fetcher(client=client),
+        ShopifyProvider(),
+        max_candidates=3,
+    )
+
+    assert len(artifact.fetched_sources) == 1
+    assert artifact.fetched_sources[0].final_url == "https://shopify.dev/docs"
+    assert requests.count("https://shopify.dev/docs") == 1

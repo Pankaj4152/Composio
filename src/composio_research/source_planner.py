@@ -52,6 +52,10 @@ class SourceCandidate:
     priority: int
     selection_reason: str
     status: RetrievalStatus = RetrievalStatus.PLANNED
+    title: str = ""
+    snippet: str = ""
+    relevance_score: float = 1.0
+    requires_human_review: bool = False
 
 
 @dataclass(frozen=True, slots=True)

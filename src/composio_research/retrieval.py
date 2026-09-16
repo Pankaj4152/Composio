@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 from typing import Protocol
 from urllib.parse import urlsplit
+import re
 
 import httpx
 from lxml import etree, html as lxml_html
@@ -44,6 +45,8 @@ class FetchedSource:
     source_type: CandidateSourceType
     is_official_domain: bool
     priority: int
+    relevance_score: float
+    requires_human_review: bool
     status: RetrievalStatus
     status_code: int | None
     title: str | None
@@ -107,6 +110,8 @@ class Fetcher:
                     source_type=candidate.source_type,
                     is_official_domain=candidate.is_official_domain,
                     priority=candidate.priority,
+                    relevance_score=candidate.relevance_score,
+                    requires_human_review=candidate.requires_human_review,
                     status=RetrievalStatus.FETCHED,
                     status_code=response.status_code,
                     title=title,
@@ -125,6 +130,8 @@ class Fetcher:
             source_type=candidate.source_type,
             is_official_domain=candidate.is_official_domain,
             priority=candidate.priority,
+            relevance_score=candidate.relevance_score,
+            requires_human_review=candidate.requires_human_review,
             status=RetrievalStatus.FAILED,
             status_code=last_status_code,
             title=None,
@@ -164,20 +171,53 @@ def extract_main_text(html: str) -> tuple[str, str | None]:
     return text, title
 
 
-def classify_search_result(result: SearchResult, official_domain: str | None) -> SourceCandidate:
+def app_relevance_score(app_name: str, result: SearchResult) -> float:
+    """Score whether a search result is about the requested app, not just its vendor."""
+    normalized_app = _normalize_for_matching(app_name)
+    app_terms = [term for term in normalized_app.split() if len(term) > 1]
+    if not app_terms:
+        return 0.0
+
+    # Search snippets can echo the user's query even when the linked page is
+    # about a different product. Treat title/URL as primary relevance signals.
+    normalized_primary = _normalize_for_matching(f"{result.title} {result.url}")
+    normalized_snippet = _normalize_for_matching(result.snippet)
+    if normalized_app in normalized_primary:
+        return 1.0
+
+    primary_terms = normalized_primary.split()
+    snippet_terms = normalized_snippet.split()
+    primary_coverage = sum(term in primary_terms for term in app_terms) / len(app_terms)
+    snippet_coverage = sum(term in snippet_terms for term in app_terms) / len(app_terms)
+    return max(primary_coverage, snippet_coverage * 0.6)
+
+
+def _normalize_for_matching(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def classify_search_result(
+    result: SearchResult,
+    official_domain: str | None,
+    app_name: str,
+) -> SourceCandidate:
     """Rank discovered URLs without overstating unverifiable GitHub ownership."""
     official = is_official_url(result.url, official_domain)
     host = urlsplit(result.url).hostname or ""
     host = host.lower()
 
     if official and any(token in host for token in ("docs.", "developer", "api.")):
-        source_type, priority = CandidateSourceType.OFFICIAL_DOCS, 90
+        source_type, base_priority = CandidateSourceType.OFFICIAL_DOCS, 90
     elif official and any(token in host for token in ("help.", "support.")):
-        source_type, priority = CandidateSourceType.OFFICIAL_HELP, 85
+        source_type, base_priority = CandidateSourceType.OFFICIAL_HELP, 85
     elif official:
-        source_type, priority = CandidateSourceType.OFFICIAL_PRODUCT, 80
+        source_type, base_priority = CandidateSourceType.OFFICIAL_PRODUCT, 80
     else:
-        source_type, priority = CandidateSourceType.SECONDARY, 40
+        source_type, base_priority = CandidateSourceType.SECONDARY, 40
+
+    relevance_score = app_relevance_score(app_name, result)
+    requires_human_review = relevance_score < 0.75
+    priority = round(base_priority * (0.5 + (0.5 * relevance_score)))
 
     return SourceCandidate(
         url=result.url,
@@ -186,6 +226,10 @@ def classify_search_result(result: SearchResult, official_domain: str | None) ->
         is_official_domain=official,
         priority=priority,
         selection_reason=f"Search result: {result.title}",
+        title=result.title,
+        snippet=result.snippet,
+        relevance_score=relevance_score,
+        requires_human_review=requires_human_review,
     )
 
 
@@ -201,7 +245,7 @@ def discover_candidates(
     if search_provider is not None:
         for query in plan.queries:
             for result in search_provider.search(query.query, limit=per_query_limit):
-                candidate = classify_search_result(result, plan.hint.official_domain)
+                candidate = classify_search_result(result, plan.hint.official_domain, plan.app_name)
                 existing = candidates.get(candidate.url)
                 if existing is None or candidate.priority > existing.priority:
                     candidates[candidate.url] = candidate
@@ -222,14 +266,31 @@ def retrieve_plan(
     if max_candidates < 1:
         raise ValueError("max_candidates must be at least 1.")
     candidates = candidates[:max_candidates]
-    fetched_sources = tuple(fetcher.fetch(candidate) for candidate in candidates)
+    fetched_sources: list[FetchedSource] = []
+    seen_canonical_urls: set[str] = set()
+    for candidate in candidates:
+        if canonicalize_url(candidate.url) in seen_canonical_urls:
+            continue
+        source = fetcher.fetch(candidate)
+        canonical_url = canonicalize_url(source.final_url or source.requested_url)
+        if canonical_url in seen_canonical_urls:
+            continue
+        seen_canonical_urls.add(canonical_url)
+        fetched_sources.append(source)
     return RetrievalArtifact(
         app_id=plan.app_id,
         app_name=plan.app_name,
         plan=plan,
-        fetched_sources=fetched_sources,
+        fetched_sources=tuple(fetched_sources),
         created_at=utc_now(),
     )
+
+
+def canonicalize_url(url: str) -> str:
+    """Normalize URLs enough to remove duplicate source pages after redirects."""
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/") or "/"
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{path}"
 
 
 def retrieval_artifact_path(app_id: int, log_dir: Path = LOG_DIR) -> Path:
