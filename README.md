@@ -112,7 +112,13 @@ uv run python scripts/generate_insights.py
 uv run python scripts/build_report.py
 ```
 
-Open `report/index.html` after the final command.
+The final command writes the deployable report to `index.html` at the repository root.
+
+## Live case study / GitHub Pages
+
+Live URL after enabling Pages: https://pankaj4152.github.io/Composio/
+
+In GitHub, open **Settings → Pages**, choose **Deploy from a branch**, then select `main` and `/(root)`. The root `index.html` and `.nojekyll` marker are included specifically for this deployment.
 
 ## Auditability and limitations
 
