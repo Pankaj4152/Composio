@@ -2,14 +2,17 @@
 
 from collections import Counter
 from dataclasses import FrozenInstanceError
+import json
+from pathlib import Path
 
 import pytest
 
-from composio_research.apps import APPS, CATEGORIES
+from composio_research.apps import APPS, CATEGORIES, DATASET_PATH, load_apps
 
 
 def test_contains_exactly_100_apps() -> None:
     assert len(APPS) == 100
+    assert DATASET_PATH.name == "apps.input.json"
 
 
 def test_ids_are_unique_and_cover_the_assignment_range() -> None:
@@ -48,3 +51,21 @@ def test_non_url_hints_are_preserved_as_source_text() -> None:
 def test_source_entries_are_immutable() -> None:
     with pytest.raises(FrozenInstanceError):
         APPS[0].name = "Changed"  # type: ignore[misc]
+
+
+def test_loader_rejects_malformed_json(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "apps.input.json"
+    dataset_path.write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        load_apps(dataset_path)
+
+
+def test_loader_rejects_duplicate_app_names(tmp_path: Path) -> None:
+    records = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
+    records[1]["name"] = records[0]["name"]
+    dataset_path = tmp_path / "apps.input.json"
+    dataset_path.write_text(json.dumps(records), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate app names"):
+        load_apps(dataset_path)
