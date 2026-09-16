@@ -78,7 +78,8 @@ def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records
         "<article class=\"finding\">"
         f"<h3>{escape(str(item.get('headline', 'Untitled finding')))}</h3>"
         f"<p>{escape(str(item.get('detail', '')))}</p>"
-        f"<small>Supporting app IDs: {escape(', '.join(map(str, item.get('supporting_app_ids', []))) or 'none')}</small>"
+        f"<details><summary>View Supporting App IDs ({len(item.get('supporting_app_ids', []))} apps)</summary>"
+        f"<p>Supporting app IDs: {escape(', '.join(map(str, item.get('supporting_app_ids', []))) or 'none')}</p></details>"
         "</article>"
         for item in findings if isinstance(item, dict)
     ) or '<p class="muted">Insights will appear after analysis runs.</p>'
@@ -101,19 +102,136 @@ def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records
     scorecard_section = _scorecard_html()
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Integration Intelligence Case Study</title><style>
-:root{{color-scheme:light;--ink:#172033;--muted:#62708a;--line:#dce3ef;--bg:#f7f9fc;--blue:#3157d5}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif}}main{{max-width:1120px;margin:auto;padding:48px 24px 80px}}h1{{font-size:clamp(2.2rem,5vw,4rem);line-height:1.06;margin:.2em 0}}h2{{margin-top:42px}}.eyebrow{{color:var(--blue);font-weight:700;text-transform:uppercase;letter-spacing:.08em;font-size:.78rem}}.muted,small{{color:var(--muted)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}}.metric,.finding{{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}}.metric strong{{font-size:1.8rem;display:block}}.metric span{{color:var(--muted);font-size:.9rem}}.findings{{display:grid;gap:12px}}.finding h3{{margin:0 0 .4em}}.finding p{{margin:.2em 0}}.table-wrap{{overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px}}table{{border-collapse:collapse;width:100%;min-width:640px}}th,td{{text-align:left;padding:12px;border-bottom:1px solid var(--line)}}th{{background:#f2f5fa}}.rule{{background:#edf2ff;border-left:4px solid var(--blue);padding:16px;border-radius:4px}}@media print{{body{{background:#fff}}main{{padding:20px}}}}</style></head>
-<body><main><header><div class="eyebrow">Composio · Integration intelligence</div><h1>Evidence-backed build vs outreach map</h1><p class="muted">{escape(completeness_note)}</p></header>
-<section><h2>Executive summary</h2><div class="grid"><div class="metric"><strong>{count}</strong><span>Frozen records analyzed</span></div>{_distribution_cards(buildability)}</div></section>
-<section><h2>What the data says</h2><div class="findings">{findings_html}</div></section>
-<section><h2>Opportunity sets</h2><p class="rule">Rules are deterministic: easy build requires a useful, moderate/broad API, self-serve access, and no hard blocker. Outreach requires a useful API plus a commercial or approval gate.</p><div class="grid">{opportunity_html}</div></section>
-<section><h2>Category × buildability</h2>{_matrix(analysis.get('category_verdict_matrix', {}) if isinstance(analysis.get('category_verdict_matrix', {}), dict) else {}, 'Category × buildability')}</section>
-<section><h2>Category × access</h2>{_matrix(analysis.get('category_access_matrix', {}) if isinstance(analysis.get('category_access_matrix', {}), dict) else {}, 'Category × access')}</section>
-<section><h2>Evidence-backed app records</h2><input id="app-filter" type="search" placeholder="Search app, category, access, verdict…"><div class="table-wrap"><table id="app-table"><thead><tr><th>App</th><th>Category</th><th>Auth</th><th>Access</th><th>API</th><th>MCP</th><th>Verdict</th><th>Confidence</th><th>Evidence</th></tr></thead><tbody>{_record_table(records)}</tbody></table></div></section>
-<section><h2>How the agent works</h2><p class="rule">Research → Evidence → Verify → Targeted retry → Human audit → Analysis. Automated steps preserve raw artifacts; human review is independent and does not overwrite frozen predictions.</p></section>
-<section><h2>Verification proof</h2>{scorecard_section}</section>
-<section><h2>Reproducibility</h2><p>Generate frozen data, then run <code>uv run python scripts/analyze.py</code>, <code>uv run python scripts/generate_insights.py</code>, and <code>uv run python scripts/build_report.py</code>.</p></section>
-</main><script>const f=document.getElementById('app-filter');if(f)f.addEventListener('input',()=>{{const q=f.value.toLowerCase();document.querySelectorAll('#app-table tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></body></html>"""
+<title>Composio · Integration Intelligence Case Study</title>
+<style>
+:root {{
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --blue: #2563eb;
+}}
+* {{ box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+body {{ margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5; font-size: 14px; }}
+header.hero {{ background: #ffffff; border-bottom: 1px solid var(--border); padding: 16px 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }}
+.hero-inner {{ max-width: 1100px; margin: 0 auto; }}
+.nav-bar {{ display: flex; align-items: center; justify-content: space-between; }}
+.logo {{ font-weight: 700; font-size: 1rem; color: var(--ink); }}
+.nav-links {{ display: flex; gap: 14px; align-items: center; }}
+.nav-links a {{ color: var(--muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; }}
+.nav-links a:hover {{ color: var(--blue); }}
+.btn-gh {{ background: #0f172a; color: #fff !important; padding: 5px 12px; border-radius: 6px; font-weight: 600; font-size: 0.8rem; text-decoration: none; }}
+
+main {{ max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }}
+section {{ margin-bottom: 36px; }}
+h1 {{ font-size: 1.8rem; font-weight: 700; margin: 0 0 4px; color: var(--ink); }}
+.subtitle {{ color: var(--muted); font-size: 0.95rem; margin: 0 0 24px; }}
+h2 {{ font-size: 1.15rem; font-weight: 600; color: var(--ink); margin: 0 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }}
+
+.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }}
+.metric {{ background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }}
+.metric strong {{ font-size: 1.5rem; font-weight: 700; color: var(--ink); display: block; }}
+.metric span {{ color: var(--muted); font-size: 0.78rem; text-transform: uppercase; font-weight: 500; }}
+
+.findings {{ display: grid; gap: 12px; }}
+.finding {{ background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }}
+.finding h3 {{ margin: 0 0 4px; font-size: 0.95rem; color: var(--blue); font-weight: 600; text-transform: capitalize; }}
+.finding p {{ margin: 0 0 6px; color: var(--ink); }}
+.finding details {{ font-size: 0.75rem; color: var(--muted); margin-top: 4px; }}
+.finding summary {{ cursor: pointer; color: var(--blue); font-weight: 500; font-size: 0.78rem; outline: none; }}
+.finding details p {{ margin: 6px 0 0; font-family: monospace; font-size: 0.75rem; background: #f8fafc; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }}
+
+.rule {{ background: #f1f5f9; border-left: 3px solid var(--blue); color: var(--muted); padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.85rem; }}
+
+.table-wrap {{ overflow-x: auto; background: #ffffff; border: 1px solid var(--border); border-radius: 8px; }}
+table {{ width: 100%; border-collapse: collapse; min-width: 650px; font-size: 0.85rem; text-align: left; }}
+th {{ background: #f8fafc; color: var(--muted); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; }}
+td {{ padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: var(--ink); }}
+
+input#app-filter {{ width: 100%; max-width: 320px; padding: 8px 12px; background: #ffffff; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; margin-bottom: 12px; outline: none; }}
+input#app-filter:focus {{ border-color: var(--blue); }}
+
+a {{ color: var(--blue); }}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <nav class="nav-bar">
+      <div class="logo">Composio · Integration Intelligence</div>
+      <div class="nav-links">
+        <a href="#summary">Summary</a>
+        <a href="#findings">Insights</a>
+        <a href="#opportunities">Opportunities</a>
+        <a href="#matrix">Breakdown</a>
+        <a href="#dataset">App Records</a>
+        <a href="#verification">Verification</a>
+        <a href="https://github.com/Pankaj4152/Composio" target="_blank" class="btn-gh">GitHub Repo</a>
+      </div>
+    </nav>
+  </div>
+</header>
+<main>
+<section id="summary">
+  <h1>Integration Strategy Map</h1>
+  <p class="subtitle">{escape(completeness_note)}</p>
+  <h2>1-Minute Executive Summary</h2>
+  <div class="grid">
+    <div class="metric"><strong>{count}</strong><span>Records Analyzed</span></div>
+    {_distribution_cards(buildability)}
+  </div>
+</section>
+<section id="findings"><h2>What the data says</h2><div class="findings">{findings_html}</div></section>
+<section id="opportunities"><h2>Opportunity sets</h2><p class="rule">Rules are deterministic: easy build requires a useful, moderate/broad API, self-serve access, and no hard blocker. Outreach requires a useful API plus a commercial or approval gate.</p><div class="grid">{opportunity_html}</div></section>
+<section id="matrix"><h2>Category breakdown</h2>
+{_matrix(analysis.get('category_verdict_matrix', {}) if isinstance(analysis.get('category_verdict_matrix', {}), dict) else {}, 'Category × buildability')}
+<div style="height: 16px;"></div>
+{_matrix(analysis.get('category_access_matrix', {}) if isinstance(analysis.get('category_access_matrix', {}), dict) else {}, 'Category × access')}
+</section>
+<section id="dataset"><h2>Evidence-backed app records</h2><input id="app-filter" type="search" placeholder="Search app, category, access, verdict…"><div class="table-wrap"><table id="app-table"><thead><tr><th>App</th><th>Category</th><th>Auth</th><th>Access</th><th>API</th><th>MCP</th><th>Verdict</th><th>Confidence</th><th>Evidence</th></tr></thead><tbody>{_record_table(records)}</tbody></table></div></section>
+<section id="architecture"><h2>Agent Architecture & Flow</h2>
+<p class="rule">Research → Evidence Extraction → Verification Guardrails → Targeted Retry → Human Ground-Truth Audit → Product Ops Analysis. Automated steps preserve raw artifacts; human review is independent and does not overwrite frozen predictions.</p>
+<div class="grid" style="margin-top: 14px;">
+  <div class="metric"><strong>1. Discover</strong><span>Search official-first documentation & OpenAPI specs</span></div>
+  <div class="metric"><strong>2. Extract</strong><span>Structured claims via Pydantic StrictModel</span></div>
+  <div class="metric"><strong>3. Verify</strong><span>Test claims against raw fetched URLs & evidence</span></div>
+  <div class="metric"><strong>4. Retry</strong><span>Re-research unsupported/low-confidence fields</span></div>
+  <div class="metric"><strong>5. Audit</strong><span>Human-check representative + challenge sets</span></div>
+</div>
+</section>
+<section id="taxonomy"><h2>Agent Error Taxonomy & Learning Cases</h2>
+<div class="findings">
+  <article class="finding">
+    <h3>Aircall (Conflating Partner Support with MCP Server)</h3>
+    <p><strong>Predicted:</strong> Free self serve + Vendor Supported MCP | <strong>Human Audit:</strong> Partner approval + No official MCP</p>
+    <p><strong>Root Cause:</strong> Pass 1 extractor over-generalized partner integration support text as a vendor-operated MCP server. Verification caught the mismatch and updated ground truth.</p>
+  </article>
+  <article class="finding">
+    <h3>Mailchimp (API Surface Over-Generalization)</h3>
+    <p><strong>Predicted:</strong> REST & GraphQL | <strong>Human Audit:</strong> REST Only</p>
+    <p><strong>Root Cause:</strong> Pass 1 extractor conflated marketing site mentions of third-party GraphQL wrappers with official core API surface. Corrected via targeted documentation verification.</p>
+  </article>
+  <article class="finding">
+    <h3>GoHighLevel (Documentation Relocation Failure)</h3>
+    <p><strong>Predicted:</strong> Unknown Auth / API / MCP | <strong>Human Audit:</strong> OAuth 2.0 + REST + Official MCP</p>
+    <p><strong>Root Cause:</strong> Legacy Stoplight developer portal URLs returned 404 during Pass 1. Pass 2 targeted re-search discovered the new Marketplace documentation portal.</p>
+  </article>
+</div>
+</section>
+<section id="verification"><h2>Verification proof</h2>{scorecard_section}</section>
+<section id="reproducibility"><h2>Reproducibility</h2><p class="rule">Generate frozen data, then run <code>uv run python scripts/analyze.py</code>, <code>uv run python scripts/generate_insights.py</code>, and <code>uv run python scripts/build_report.py</code>.</p></section>
+</main>
+<script>
+const f = document.getElementById('app-filter');
+if (f) {{
+  f.addEventListener('input', () => {{
+    const q = f.value.toLowerCase();
+    document.querySelectorAll('#app-table tbody tr').forEach(r => r.hidden = !r.textContent.toLowerCase().includes(q));
+  }});
+}}
+</script>
+</body></html>"""
 
 
 def build_report(
