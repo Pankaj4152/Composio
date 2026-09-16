@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from composio_research.config import REPORT_DIR
+from composio_research.analysis import load_final_records
+from composio_research.schema import AppRecord
 from composio_research.serialization import read_json
 
 
@@ -29,7 +31,16 @@ def _matrix(matrix: dict[str, Any], title: str) -> str:
     return f"<section><h2>{escape(title)}</h2><div class=\"table-wrap\"><table><thead><tr><th>Category</th>{headers}</tr></thead><tbody>{rows}</tbody></table></div></section>"
 
 
-def render_report(analysis: dict[str, Any], insights: dict[str, Any]) -> str:
+def _record_table(records: tuple[AppRecord, ...]) -> str:
+    rows = []
+    for record in records:
+        url = next((item.url for item in record.evidence), None)
+        link = f'<a href="{escape(url, quote=True)}" target="_blank" rel="noreferrer">Source</a>' if url else "—"
+        rows.append(f"<tr><td>{escape(record.app)}</td><td>{escape(record.category)}</td><td>{escape(', '.join(item.value for item in record.auth_methods))}</td><td>{_label(record.credential_access.value)}</td><td>{_label(record.api_surface.value)}</td><td>{_label(record.mcp_status.value)}</td><td>{_label(record.buildability_verdict.value)}</td><td>{record.overall_confidence:.2f}</td><td>{link}</td></tr>")
+    return "".join(rows) or '<tr><td colspan="9">No frozen records available.</td></tr>'
+
+
+def render_report(analysis: dict[str, Any], insights: dict[str, Any], *, records: tuple[AppRecord, ...] = ()) -> str:
     """Render only supplied computed values; no dataset-size or outcome is hard-coded."""
     count = int(analysis.get("record_count", 0))
     buildability = analysis.get("buildability_distribution", {})
@@ -72,8 +83,11 @@ def render_report(analysis: dict[str, Any], insights: dict[str, Any]) -> str:
 <section><h2>Opportunity sets</h2><p class="rule">Rules are deterministic: easy build requires a useful, moderate/broad API, self-serve access, and no hard blocker. Outreach requires a useful API plus a commercial or approval gate.</p><div class="grid">{opportunity_html}</div></section>
 {_matrix(analysis.get('category_verdict_matrix', {}) if isinstance(analysis.get('category_verdict_matrix', {}), dict) else {}, 'Category × buildability')}
 {_matrix(analysis.get('category_access_matrix', {}) if isinstance(analysis.get('category_access_matrix', {}), dict) else {}, 'Category × access')}
+<section><h2>Evidence-backed app records</h2><input id="app-filter" type="search" placeholder="Search app, category, access, verdict…"><div class="table-wrap"><table id="app-table"><thead><tr><th>App</th><th>Category</th><th>Auth</th><th>Access</th><th>API</th><th>MCP</th><th>Verdict</th><th>Confidence</th><th>Evidence</th></tr></thead><tbody>{_record_table(records)}</tbody></table></div></section>
+<section><h2>How the agent works</h2><p class="rule">Research → Evidence → Verify → Targeted retry → Human audit → Analysis. Automated steps preserve raw artifacts; human review is independent and does not overwrite frozen predictions.</p></section>
+<section><h2>Verification proof</h2><p class="muted">No completed human audit has been supplied yet. Field-level and paired pass-one/pass-two accuracy will appear here after independent review.</p></section>
 <section><h2>Reproducibility</h2><p>Generate frozen data, then run <code>uv run python scripts/analyze.py</code>, <code>uv run python scripts/generate_insights.py</code>, and <code>uv run python scripts/build_report.py</code>.</p></section>
-</main></body></html>"""
+</main><script>const f=document.getElementById('app-filter');if(f)f.addEventListener('input',()=>{{const q=f.value.toLowerCase();document.querySelectorAll('#app-table tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></body></html>"""
 
 
 def build_report(
@@ -86,5 +100,5 @@ def build_report(
     if not isinstance(analysis, dict) or not isinstance(insights, dict):
         raise ValueError("Analysis and insight artifacts must both be JSON objects.")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_report(analysis, insights), encoding="utf-8")
+    output_path.write_text(render_report(analysis, insights, records=load_final_records()), encoding="utf-8")
     return output_path
