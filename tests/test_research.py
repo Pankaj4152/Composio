@@ -6,7 +6,7 @@ import pytest
 
 from composio_research.apps import APPS
 from composio_research.config import Settings
-from composio_research.evidence_verifier import EvidenceVerifier, save_verification_artifacts
+from composio_research.evidence_verifier import EvidenceVerifier, VerificationArtifact, save_verification_artifacts
 from composio_research.research import (
     ResearchExtractionError,
     ResearchExtractor,
@@ -16,6 +16,7 @@ from composio_research.research import (
     validate_record_consistency,
 )
 from composio_research.retrieval import FetchedSource, RetrievalArtifact, retrieval_artifact_from_dict
+from composio_research.retry_policy import retry_tasks, targeted_query
 from composio_research.serialization import read_json, write_json
 from composio_research.schema import (
     ApiBreadth,
@@ -24,6 +25,7 @@ from composio_research.schema import (
     AuthMethod,
     BlockerType,
     BuildabilityVerdict,
+    ClaimVerification,
     CredentialAccess,
     Evidence,
     EvidenceSourceType,
@@ -263,6 +265,35 @@ def test_verifier_marks_missing_cited_source_unverifiable() -> None:
 
     assert artifact.verification.status == VerificationStatus.UNVERIFIABLE
     assert artifact.raw_output is None
+
+
+def test_retry_tasks_are_targeted_to_unsupported_critical_fields() -> None:
+    evidence = make_record().evidence[0]
+    verification = VerificationArtifact(
+        app_id=21,
+        field="auth_methods",
+        claim=evidence.claim,
+        source_url=evidence.url,
+        model="test-model",
+        response_id="resp_verify",
+        raw_output="{}",
+        verification=ClaimVerification(
+            app_id=21,
+            field="auth_methods",
+            claim=evidence.claim,
+            source_url=evidence.url,
+            status=VerificationStatus.UNSUPPORTED,
+            explanation="The source does not mention OAuth.",
+            verifier_confidence=0.9,
+        ),
+    )
+
+    tasks = retry_tasks(make_record(), (verification,))
+
+    assert len(tasks) == 1
+    assert tasks[0].field == "auth_methods"
+    assert "API authentication" in tasks[0].query
+    assert targeted_query("Slack", "auth_methods").startswith("Slack")
 
 
 def test_retrieval_artifact_round_trip_rehydrates_nested_types(tmp_path) -> None:

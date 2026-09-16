@@ -69,7 +69,13 @@ class ResearchExtractionError(RuntimeError):
         self.artifact = artifact
 
 
-def build_research_context(entry: AppEntry, artifact: RetrievalArtifact, *, max_chars_per_source: int = 12_000) -> str:
+def build_research_context(
+    entry: AppEntry,
+    artifact: RetrievalArtifact,
+    *,
+    max_chars_per_source: int = 12_000,
+    retry_context: str | None = None,
+) -> str:
     """Prepare only clean fetched text and traceable source metadata for the model."""
     source_sections: list[str] = []
     for index, source in enumerate(artifact.fetched_sources, start=1):
@@ -91,14 +97,15 @@ def build_research_context(entry: AppEntry, artifact: RetrievalArtifact, *, max_
             )
         )
 
-    return "\n\n".join(
-        (
+    sections = [
             f"APP: {entry.name}",
             f"CATEGORY: {entry.category}",
             f"ASSIGNMENT_HINT: {entry.hint}",
             "\nSOURCES:\n" + ("\n\n".join(source_sections) or "No usable fetched sources."),
-        )
-    )
+    ]
+    if retry_context:
+        sections.append("TARGETED_RETRY_TASK:\n" + retry_context)
+    return "\n\n".join(sections)
 
 
 def openai_strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
@@ -194,8 +201,15 @@ class ResearchExtractor:
             client = OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds, max_retries=0)
         self.client = client
 
-    def extract(self, entry: AppEntry, retrieval_artifact: RetrievalArtifact, *, pass_number: int = 1) -> tuple[AppRecord, ResearchArtifact]:
-        context = build_research_context(entry, retrieval_artifact)
+    def extract(
+        self,
+        entry: AppEntry,
+        retrieval_artifact: RetrievalArtifact,
+        *,
+        pass_number: int = 1,
+        retry_context: str | None = None,
+    ) -> tuple[AppRecord, ResearchArtifact]:
+        context = build_research_context(entry, retrieval_artifact, retry_context=retry_context)
         try:
             response = self.client.responses.create(
                 model=self.model,
