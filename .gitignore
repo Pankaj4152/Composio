@@ -21,6 +21,7 @@ final/
 # Generated report
 report/index.html
 report/analysis.json
+report/insights.json
 
 # Keep directory markers
 !**/.gitkeep
