@@ -6,6 +6,7 @@ import pytest
 
 from composio_research.apps import APPS
 from composio_research.config import Settings
+from composio_research.evidence_verifier import EvidenceVerifier, save_verification_artifacts
 from composio_research.research import (
     ResearchExtractionError,
     ResearchExtractor,
@@ -28,6 +29,7 @@ from composio_research.schema import (
     EvidenceSourceType,
     EvidenceSupport,
     MCPStatus,
+    VerificationStatus,
 )
 from composio_research.source_planner import CandidateSourceType, RetrievalStatus, plan_research
 
@@ -144,6 +146,13 @@ def test_openai_schema_requires_nullable_pydantic_fields() -> None:
     assert "default" not in record_properties["manual_override"]
 
 
+def test_openai_schema_can_adapt_claim_verification() -> None:
+    from composio_research.schema import ClaimVerification
+
+    schema = openai_strict_json_schema(ClaimVerification)
+    assert set(schema["required"]) == set(schema["properties"])
+
+
 def test_extractor_uses_strict_json_schema_and_overwrites_model_identity() -> None:
     payload = make_record().model_dump(mode="json")
     payload.update({"id": 999, "app": "Wrong", "category": "Wrong", "hint": "wrong"})
@@ -214,6 +223,46 @@ def test_extractor_converts_provider_errors_to_research_errors() -> None:
 
     with pytest.raises(ResearchExtractionError, match="Responses API request failed"):
         extractor.extract(slack_entry(), make_retrieval_artifact())
+
+
+def test_verifier_uses_only_the_evidence_cited_source_and_preserves_identity(tmp_path) -> None:
+    evidence = make_record().evidence[0]
+    payload = {
+        "app_id": 999,
+        "field": "wrong",
+        "claim": "wrong",
+        "source_url": "https://wrong.example",
+        "status": "supported",
+        "explanation": "The source explicitly says OAuth 2.0.",
+        "verifier_confidence": 0.95,
+    }
+    FakeClient.responses.response = FakeResponse(payload)
+    artifacts = EvidenceVerifier(Settings(openai_model="test-model", _env_file=None), client=FakeClient()).verify(
+        make_record(), make_retrieval_artifact()
+    )
+
+    first = artifacts[0]
+    assert first.verification.app_id == 21
+    assert first.verification.field == evidence.field
+    assert first.verification.source_url == evidence.url
+    assert first.verification.status == VerificationStatus.SUPPORTED
+    assert FakeClient.responses.last_kwargs is not None
+    assert "Slack apps use OAuth 2.0." in FakeClient.responses.last_kwargs["input"]  # type: ignore[operator]
+    assert "Business messaging platform." not in FakeClient.responses.last_kwargs["input"]  # type: ignore[operator]
+    paths = save_verification_artifacts(artifacts, tmp_path)
+    assert len(paths) == len(make_record().evidence)
+
+
+def test_verifier_marks_missing_cited_source_unverifiable() -> None:
+    missing = Evidence(
+        field="auth_methods", claim="A claim", url="https://missing.example", source_type=EvidenceSourceType.SECONDARY,
+        support=EvidenceSupport.DIRECT, confidence=0.5,
+    )
+    verifier = EvidenceVerifier(Settings(openai_model="test-model", _env_file=None), client=FakeClient())
+    artifact = verifier.verify_evidence(21, missing, make_retrieval_artifact())
+
+    assert artifact.verification.status == VerificationStatus.UNVERIFIABLE
+    assert artifact.raw_output is None
 
 
 def test_retrieval_artifact_round_trip_rehydrates_nested_types(tmp_path) -> None:

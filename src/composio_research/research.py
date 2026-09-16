@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+from pydantic import BaseModel
+
 from composio_research.apps import AppEntry
 from composio_research.config import LOG_DIR, Settings
 from composio_research.retrieval import RetrievalArtifact, canonicalize_url
@@ -99,7 +101,7 @@ def build_research_context(entry: AppEntry, artifact: RetrievalArtifact, *, max_
     )
 
 
-def openai_strict_json_schema(model: type[AppRecord]) -> dict[str, Any]:
+def openai_strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Adapt Pydantic JSON Schema to OpenAI strict Structured Outputs rules.
 
     Pydantic treats nullable/defaulted fields as optional. OpenAI requires every
