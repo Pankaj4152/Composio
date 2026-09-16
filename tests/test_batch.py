@@ -50,7 +50,7 @@ def test_completeness_reports_missing_and_terminal_error_ids(tmp_path) -> None:
 def test_batch_reports_each_completed_result_to_progress_callback(monkeypatch) -> None:
     import composio_research.batch as batch
 
-    monkeypatch.setattr(batch, "run_one", lambda entry, settings: AppRunResult(entry.id, entry.name, "verified", "done"))
+    monkeypatch.setattr(batch, "run_one", lambda entry, settings, **kwargs: AppRunResult(entry.id, entry.name, "verified", "done"))
     progress = []
     results = run_batch(APPS[:2], Settings(_env_file=None), max_concurrency=1, on_result=lambda done, total, result: progress.append((done, total, result.id if hasattr(result, 'id') else result.app_id)))
 

@@ -38,7 +38,10 @@ def main() -> None:
     def progress(completed: int, total: int, result) -> None:
         print(f"[{completed}/{total}] {result.app_name} ({result.app_id:03d}) — {result.status}: {result.detail}", flush=True)
 
-    results = run_batch(selected, settings, max_concurrency=args.max_concurrency, on_result=progress)
+    def event(entry, stage: str, detail: str) -> None:
+        print(f"  [{entry.id:03d}] {entry.name} — {stage}: {detail}", flush=True)
+
+    results = run_batch(selected, settings, max_concurrency=args.max_concurrency, on_result=progress, on_event=event)
     write_json(LOG_DIR / "runs" / "latest.json", results)
     report = validate_completeness(APPS)
     write_json(LOG_DIR / "runs" / "completeness.json", report)

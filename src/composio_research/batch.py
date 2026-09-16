@@ -92,22 +92,30 @@ def run_one(
     pass1_dir: Path = PASS1_DIR,
     pass2_dir: Path = PASS2_DIR,
     log_dir: Path = LOG_DIR,
+    on_event: Callable[[AppEntry, str, str], None] | None = None,
 ) -> AppRunResult:
     """Run or resume one app; failure is isolated and persisted for batch recovery."""
     stage = "load_pass1"
+    def emit(name: str, detail: str) -> None:
+        if on_event:
+            on_event(entry, name, detail)
     try:
         pass1_path = _record_path(pass1_dir, entry.id)
         retrieval_path = retrieval_artifact_path(entry.id, log_dir)
         if pass1_path.exists():
+            emit("load_pass1", "Using existing frozen pass-one record.")
             record = AppRecord.model_validate(read_json(pass1_path))
         else:
             stage = "retrieve_pass1"
+            emit(stage, "Searching and fetching official sources.")
             provider = create_search_provider(settings)
             fetcher = Fetcher(timeout_seconds=settings.request_timeout_seconds)
             try:
                 retrieval = retrieve_plan(plan_research(entry), fetcher, provider)
+                emit(stage, f"Fetched {sum(source.extracted_text is not None for source in retrieval.fetched_sources)} usable source(s).")
                 save_retrieval_artifact(retrieval, log_dir)
                 stage = "extract_pass1"
+                emit(stage, "Submitting structured extraction to OpenAI.")
                 extractor = ResearchExtractor(settings)
                 try:
                     record, artifact = extractor.extract(entry, retrieval, pass_number=1)
@@ -116,8 +124,10 @@ def run_one(
                     if not tasks:
                         raise
                     stage = "targeted_retry_pass1"
+                    emit(stage, f"Re-searching missing evidence for: {', '.join(task.field for task in tasks)}.")
                     retrieval = retrieve_plan(retry_plan(retrieval.plan, tasks), fetcher, provider, max_candidates=8)
                     write_json(log_dir / "retrieval" / f"{entry.id:03d}_pass1_retry.json", retrieval)
+                    emit(stage, "Submitting focused pass-one extraction to OpenAI.")
                     record, artifact = extractor.extract(entry, retrieval, pass_number=1, retry_context=retry_context(tasks))
                     save_retrieval_artifact(retrieval, log_dir)
             finally:
@@ -129,8 +139,10 @@ def run_one(
             save_research_artifact(artifact, log_dir)
 
         stage = "load_retrieval"
+        emit(stage, "Loading sources for independent verification.")
         retrieval = retrieval_artifact_from_dict(read_json(retrieval_path))
         stage = "verify"
+        emit(stage, f"Verifying {len(record.evidence)} evidence claim(s).")
         verifications = EvidenceVerifier(settings).verify(record, retrieval)
         save_verification_artifacts(verifications, log_dir)
 
@@ -139,6 +151,7 @@ def run_one(
             _resolve_error(entry, log_dir)
             return AppRunResult(entry.id, entry.name, "verified", "No retry trigger fired.")
         provider = create_search_provider(settings)
+        emit(stage, "Retrieving focused sources for pass two.")
         fetcher = Fetcher(timeout_seconds=settings.request_timeout_seconds)
         try:
             retry = execute_retry(
@@ -170,6 +183,7 @@ def run_batch(
     *,
     max_concurrency: int | None = None,
     on_result: Callable[[int, int, AppRunResult], None] | None = None,
+    on_event: Callable[[AppEntry, str, str], None] | None = None,
 ) -> tuple[AppRunResult, ...]:
     """Run entries with bounded concurrency; one app error never stops another app."""
     selected = tuple(entries)
@@ -178,7 +192,7 @@ def run_batch(
         raise ValueError("max_concurrency must be at least 1.")
     results: list[AppRunResult] = []
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="research") as executor:
-        futures = {executor.submit(run_one, entry, settings): entry for entry in selected}
+        futures = {executor.submit(run_one, entry, settings, on_event=on_event): entry for entry in selected}
         for future in as_completed(futures):
             result = future.result()
             results.append(result)

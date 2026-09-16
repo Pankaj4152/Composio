@@ -27,7 +27,8 @@ Return one JSON object that conforms exactly to the supplied AppRecord schema.
 
 Use only the provided source context. Never invent URLs, source excerpts, API
 facts, credential gates, MCP servers, or Composio coverage. Evidence must cite
-a URL present in the source context and must be attached to the exact field and
+a single literal URL present in the source context (never Markdown, a URL list,
+or a comma-separated value) and must be attached to the exact field and
 claim it supports. If evidence is inadequate, use the schema's UNKNOWN/UNCLEAR
 values, lower confidence, and explain the limitation in agent_notes.
 
