@@ -31,3 +31,10 @@ def test_audit_templates_are_blank_and_include_frozen_values() -> None:
 
     assert all(template.human_ground_truth is None and template.correct is None for template in templates)
     assert {template.field for template in templates} == {"auth_methods", "credential_access", "api_surface", "mcp_status", "buildability_verdict"}
+
+
+def test_audit_templates_include_matched_pass_two_records() -> None:
+    first = records()[0]
+    second = first.model_copy(update={"pass_number": 2})
+    templates = build_audit_templates((first,), pass2_records=(second,), representative_size=1, challenge_size=0)
+    assert {template.pass_number for template in templates} == {1, 2}

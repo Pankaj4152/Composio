@@ -2,7 +2,7 @@
 
 import argparse
 
-from composio_research.human_audit import build_audit_templates, load_records, save_audit_templates
+from composio_research.human_audit import build_audit_templates, load_pass2_records, load_records, save_audit_templates
 
 
 def main() -> None:
@@ -14,7 +14,7 @@ def main() -> None:
     if not records:
         raise SystemExit("No frozen pass-one records exist; run research before creating an audit sample.")
     output = save_audit_templates(build_audit_templates(
-        records, representative_size=args.representative_size, challenge_size=args.challenge_size
+        records, pass2_records=load_pass2_records(), representative_size=args.representative_size, challenge_size=args.challenge_size
     ))
     print({"records_available": len(records), "output": str(output)})
 

@@ -1,6 +1,9 @@
 """Tests for audit accuracy and fair pass-one/pass-two comparisons."""
 
-from composio_research.audit_metrics import score_audits
+import pytest
+
+from composio_research.audit_metrics import score_audits, validate_completed_audits
+from test_research import make_record
 from composio_research.schema import AuditSampleType, HumanAuditRecord
 
 
@@ -27,3 +30,9 @@ def test_paired_comparison_excludes_unpaired_apps() -> None:
     ))
 
     assert [(metric.pass_number, metric.checked, metric.correct) for metric in scorecard.paired_pass_comparison] == [(1, 1, 0), (2, 1, 1)]
+
+
+def test_completed_audit_must_match_frozen_prediction() -> None:
+    row = audit(21, "auth_methods", 1, True)
+    with pytest.raises(ValueError, match="does not match"):
+        validate_completed_audits((row,), (make_record(),))

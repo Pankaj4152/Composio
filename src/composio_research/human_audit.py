@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
-from composio_research.config import AUDIT_DIR, PASS1_DIR
+from composio_research.config import AUDIT_DIR, PASS1_DIR, PASS2_DIR
 from composio_research.schema import AppRecord, AuditSampleType, EvidenceSourceType
 from composio_research.serialization import read_json, write_json
 
@@ -25,7 +25,8 @@ class AuditTemplate:
     pass_number: int
     field: str
     frozen_agent_value: str
-    official_evidence_url: str | None
+    agent_evidence_urls: tuple[str, ...]
+    evidence_missing: bool
     sample_type: AuditSampleType
     reviewer_instructions: str
     human_ground_truth: str | None = None
@@ -38,16 +39,23 @@ def _rank(record: AppRecord, salt: str) -> str:
 
 
 def representative_sample(records: Iterable[AppRecord], *, size: int = 12) -> tuple[AppRecord, ...]:
-    """Choose category-stratified records deterministically, then fill remaining slots fairly."""
+    """Choose a deterministic sample covering categories and major verdict types."""
     pool = tuple(records)
-    by_category: dict[str, list[AppRecord]] = defaultdict(list)
-    for record in pool:
-        by_category[record.category].append(record)
     chosen: list[AppRecord] = []
-    for category in sorted(by_category):
-        chosen.append(min(by_category[category], key=lambda record: _rank(record, "representative-category")))
-    remaining = [record for record in pool if record not in chosen]
-    chosen.extend(sorted(remaining, key=lambda record: _rank(record, "representative-fill"))[:max(0, size - len(chosen))])
+    # First cover every available verdict, then greedily maximize coverage of
+    # unseen categories and category×verdict cells with deterministic ties.
+    for verdict in sorted({record.buildability_verdict.value for record in pool}):
+        candidates = [record for record in pool if record.buildability_verdict.value == verdict]
+        chosen.append(min(candidates, key=lambda record: _rank(record, "representative-verdict")))
+    while len(chosen) < min(size, len(pool)):
+        remaining = [record for record in pool if record not in chosen]
+        categories = {record.category for record in chosen}
+        cells = {(record.category, record.buildability_verdict.value) for record in chosen}
+        chosen.append(max(remaining, key=lambda record: (
+            int(record.category not in categories),
+            int((record.category, record.buildability_verdict.value) not in cells),
+            _rank(record, "representative-fill"),
+        )))
     return tuple(sorted(chosen[:size], key=lambda record: record.id))
 
 
@@ -66,36 +74,55 @@ def _field_value(record: AppRecord, field: str) -> str:
     return json.dumps(getattr(record, field), default=lambda value: value.value, ensure_ascii=False)
 
 
-def _official_evidence_url(record: AppRecord, field: str) -> str | None:
-    matching = [evidence for evidence in record.evidence if evidence.field == field and evidence.source_type != EvidenceSourceType.SECONDARY]
-    return matching[0].url if matching else None
+def _official_evidence_urls(record: AppRecord, field: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        evidence.url for evidence in record.evidence
+        if evidence.field == field and evidence.source_type != EvidenceSourceType.SECONDARY
+    ))
 
 
-def build_audit_templates(records: Iterable[AppRecord], *, representative_size: int = 12, challenge_size: int = 5) -> tuple[AuditTemplate, ...]:
+def build_audit_templates(
+    records: Iterable[AppRecord],
+    *,
+    pass2_records: Iterable[AppRecord] = (),
+    representative_size: int = 12,
+    challenge_size: int = 5,
+) -> tuple[AuditTemplate, ...]:
     """Build reviewer tasks without writing a human verdict or changing a record."""
     records = tuple(records)
     representative = representative_sample(records, size=representative_size)
     challenge = challenge_sample(records, size=challenge_size, exclude_ids={record.id for record in representative})
     templates: list[AuditTemplate] = []
+    pass2_by_id = {record.id: record for record in pass2_records}
     for sample_type, selected in ((AuditSampleType.REPRESENTATIVE, representative), (AuditSampleType.CHALLENGE, challenge)):
-        for record in selected:
-            for field in AUDITED_FIELDS:
-                templates.append(AuditTemplate(
-                    app_id=record.id,
-                    app=record.app,
-                    category=record.category,
-                    pass_number=record.pass_number,
-                    field=field,
-                    frozen_agent_value=_field_value(record, field),
-                    official_evidence_url=_official_evidence_url(record, field),
-                    sample_type=sample_type,
-                    reviewer_instructions="Check the linked official source, enter independent ground truth, mark correct, and explain disagreements.",
-                ))
+        for original in selected:
+            # Audit the same fields on pass two when it exists, enabling a
+            # valid paired pass-one/pass-two accuracy comparison.
+            records_for_sample = (original,) + ((pass2_by_id[original.id],) if original.id in pass2_by_id else ())
+            for record in records_for_sample:
+                for field in AUDITED_FIELDS:
+                    urls = _official_evidence_urls(record, field)
+                    templates.append(AuditTemplate(
+                        app_id=record.id,
+                        app=record.app,
+                        category=record.category,
+                        pass_number=record.pass_number,
+                        field=field,
+                        frozen_agent_value=_field_value(record, field),
+                        agent_evidence_urls=urls,
+                        evidence_missing=not urls,
+                        sample_type=sample_type,
+                        reviewer_instructions="Check the agent evidence links where present, independently find official evidence if needed, enter ground truth, mark correctness, and explain any disagreement.",
+                    ))
     return tuple(templates)
 
 
 def load_records(directory: Path = PASS1_DIR) -> tuple[AppRecord, ...]:
     return tuple(AppRecord.model_validate(read_json(path)) for path in sorted(directory.glob("*.json")))
+
+
+def load_pass2_records(directory: Path = PASS2_DIR) -> tuple[AppRecord, ...]:
+    return load_records(directory)
 
 
 def save_audit_templates(templates: tuple[AuditTemplate, ...], path: Path = AUDIT_DIR / "audit_template.json") -> Path:
