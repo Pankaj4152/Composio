@@ -126,3 +126,25 @@ def test_retrieval_artifact_is_saved_with_plan_and_clean_source_text(tmp_path: P
     assert saved["app_name"] == "Slack"
     assert saved["fetched_sources"][0]["status"] == "fetched"
     assert "OAuth 2.0" in saved["fetched_sources"][0]["extracted_text"]
+
+
+def test_retrieval_limits_the_number_of_fetched_candidates() -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(200, text=HTML_PAGE, request=request)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    plan = plan_research(app_by_name("Slack"))
+    artifact = retrieve_plan(
+        plan,
+        Fetcher(client=client),
+        FakeSearchProvider(),
+        per_query_limit=2,
+        max_candidates=2,
+    )
+
+    assert len(artifact.fetched_sources) == 2
+    assert requests == 2

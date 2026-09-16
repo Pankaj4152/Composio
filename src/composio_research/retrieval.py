@@ -215,9 +215,13 @@ def retrieve_plan(
     search_provider: SearchProvider | None = None,
     *,
     per_query_limit: int = 5,
+    max_candidates: int = 6,
 ) -> RetrievalArtifact:
     """Collect and retain clean source text for one app; errors stay per-source."""
     candidates = discover_candidates(plan, search_provider, per_query_limit=per_query_limit)
+    if max_candidates < 1:
+        raise ValueError("max_candidates must be at least 1.")
+    candidates = candidates[:max_candidates]
     fetched_sources = tuple(fetcher.fetch(candidate) for candidate in candidates)
     return RetrievalArtifact(
         app_id=plan.app_id,
