@@ -19,7 +19,9 @@ def main() -> None:
         raise SystemExit("One or more --app-id values are invalid.")
     if args.check_only:
         report = validate_completeness(APPS)
-        print(report)
+        print(f"pass1={len(report.pass1_ids)}, pass2={len(report.pass2_ids)}, unresolved_errors={len(report.unresolved_error_ids)}, resolved_error_artifacts={len(report.resolved_error_ids)}, missing={len(report.missing_ids)}")
+        if report.unresolved_error_ids:
+            print(f"Unresolved error IDs: {report.unresolved_error_ids}")
         return
     settings = load_settings()
     workers = args.max_concurrency or settings.max_concurrency
@@ -33,7 +35,7 @@ def main() -> None:
     report = validate_completeness(APPS)
     write_json(LOG_DIR / "runs" / "completeness.json", report)
     errors = sum(result.status == "error" for result in results)
-    print(f"Finished. processed={len(results)}, errors={errors}, missing_ids={len(report.missing_ids)}", flush=True)
+    print(f"Finished. processed={len(results)}, errors={errors}, pass1={len(report.pass1_ids)}, pass2={len(report.pass2_ids)}, unresolved_errors={len(report.unresolved_error_ids)}, missing_ids={len(report.missing_ids)}", flush=True)
     if report.missing_ids:
         print(f"Missing IDs: {report.missing_ids}", flush=True)
 
